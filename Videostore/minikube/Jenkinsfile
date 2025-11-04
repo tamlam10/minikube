@@ -1,0 +1,36 @@
+pipeline {
+  agent any
+
+  triggers {
+    pollSCM('H/2 * * * *')
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'main', url: 'https://github.com/tamlam10/430.git'
+      }
+    }
+
+    stage('Build Docker Image in Minikube') {
+      steps {
+        sh '''
+        eval $(minikube docker-env)
+        docker build -t videostore:latest .
+        '''
+      }
+    }
+
+    stage('Deploy to Minikube') {
+      steps {
+        sh '''
+        kubectl apply -f deployment.yaml
+        kubectl apply -f service.yaml
+        kubectl rollout status deployment/videostore-deployment
+        POD=$(kubectl get pods --selector=app=videostore -o jsonpath="{.items[0].metadata.name}")
+        kubectl exec -it $POD -- python manage.py migrate --noinput
+        '''
+      }
+    }
+  }
+}

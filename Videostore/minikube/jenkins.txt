@@ -1,0 +1,68 @@
+pipeline {
+  agent any
+
+  environment {
+  IMAGE       = 'videostore-app'
+  TAG         = 'latest'
+  CONTAINER   = 'videostore'
+
+  REPO_URL    = 'https://github.com/tamlam10/430.git'  // 👈 your actual repo
+  REPO_OWNER  = 'tamlam10'
+  REPO_NAME   = '430'
+  BRANCH      = 'main'
+}
+
+
+  stages {
+    stage('Fetch Source (public, no creds)') {
+      steps {
+        sh '''
+          set -e
+          rm -rf ./* ./.git
+
+          git config --global --unset credential.helper || true
+          git config --system --unset credential.helper || true
+          export GIT_ASKPASS=true
+
+          echo "[INFO] Trying git clone..."
+          if git -c credential.helper= clone --depth=1 -b "$BRANCH" "$REPO_URL" . ; then
+            echo "[INFO] Git clone OK"
+          else
+            echo "[WARN] Git clone failed, downloading ZIP..."
+            apt-get update -y >/dev/null 2>&1 || true
+            apt-get install -y curl unzip >/dev/null 2>&1 || true
+            curl -L -o src.zip "https://codeload.github.com/$REPO_OWNER/$REPO_NAME/zip/refs/heads/$BRANCH"
+            unzip -q src.zip
+            SRC_DIR="$REPO_NAME-$BRANCH"
+            cp -a "$SRC_DIR"/. .
+            rm -rf "$SRC_DIR" src.zip
+          fi
+
+          ls -la
+        '''
+      }
+    }
+
+    stage('Build Docker Image') {
+  steps {
+    sh '''
+      docker build --no-cache -t videostore-app:latest ./Videostore
+    '''
+  }
+}
+
+
+    stage('Stop Old Container') {
+      steps {
+        sh 'docker ps -q --filter "name=^/${CONTAINER}$" | xargs -r docker stop'
+        sh 'docker ps -aq --filter "name=^/${CONTAINER}$" | xargs -r docker rm'
+      }
+    }
+
+    stage('Run New Container') {
+      steps {
+        sh 'docker run -d --name ${CONTAINER} -p 8000:8000 ${IMAGE}:${TAG}'
+      }
+    }
+  }
+}
